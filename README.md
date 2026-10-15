@@ -17,6 +17,12 @@ PIR|<기기이름>|<MOTION|CLEAR>|<uptimeMs>
 
 ## 집 밖에서 받기 (ntfy)
 
+> 현재 구성: 라즈베리파이에 ntfy를 직접 올려 쓰고 있다.
+> 서버 설정은 `capp/ntfy-pi`, 공개 주소는 Tailscale Funnel의 8443 포트.
+> 공개 ntfy.sh를 쓰려면 `secrets.h`의 `NTFY_BASE_URL`만 `https://ntfy.sh`로 되돌리고
+> `NTFY_TOKEN`을 비우면 된다.
+
+
 UDP 브로드캐스트는 같은 공유기 안에서만 돈다. 다른 와이파이나 데이터망에서도 받으려면
 인터넷 중계가 필요하므로, 감지 시 [ntfy.sh](https://ntfy.sh)로도 HTTPS POST 한다.
 폰의 ntfy 앱이 구글 푸시로 받기 때문에 깊은 절전이든 LTE든 상관없이 도착한다.
@@ -162,3 +168,5 @@ HC-SR501 센서로 실제 감지 동작까지 확인했다.
 - 와이파이 접속, 감지 시 UDP 송출, ntfy HTTPS POST 성공(HTTP 200)
 - 구독 측에서 메시지 수신 확인(title/priority/tags 포함)
 - 쿨다운 동작 확인(연속 감지 6건 억제)
+- 자체 호스팅 서버(파이) 전환 후 전구간 확인: 보드 시리얼 `ntfy: 전송 성공 (HTTP 200)` →
+  서버에 메시지 저장 확인. 토큰 없는 요청은 403
