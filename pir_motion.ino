@@ -34,7 +34,7 @@ const int LED_PIN   = 2;    // 보드 내장 LED
 const uint16_t NOTIFY_PORT = 8765;   // 안드로이드 앱이 듣는 포트
 
 // 같은 와이파이 안에서 UDP로도 보낼지. ntfy 앱만 쓸 거면 false로 두면 알림이 겹치지 않는다.
-const bool SEND_UDP = true;
+const bool SEND_UDP = false;
 
 // ntfy 푸시 사이 최소 간격. 센서는 몇 초마다 반응할 수 있어서 이게 없으면 알림 폭탄이 된다.
 const unsigned long NTFY_COOLDOWN_MS = 60000;
