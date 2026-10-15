@@ -14,18 +14,33 @@
 
   와이파이 정보는 secrets.h 에 있다 (secrets.h.example 참고, 깃에는 안 올라감).
 
+  집 밖(다른 와이파이, 데이터망)에서도 받으려면 인터넷 중계가 필요하다.
+  그래서 감지 시 ntfy.sh 로도 HTTPS POST 한다. 폰의 ntfy 앱이 구글 푸시로 받으므로
+  깊은 절전이든 LTE든 상관없이 도착한다. 토픽 이름은 secrets.h 에 있고 그 자체가 비밀번호다.
+
   보드: ESP32 Dev Module / 업로드 보드레이트 115200
   시리얼 모니터: 115200 baud
 */
 
 #include <WiFi.h>
 #include <WiFiUdp.h>
+#include <WiFiClientSecure.h>
+#include <HTTPClient.h>
 #include "secrets.h"
 
 const int PIR_PIN   = 16;   // 인체감지센서 OUT
 const int LED_PIN   = 2;    // 보드 내장 LED
 
 const uint16_t NOTIFY_PORT = 8765;   // 안드로이드 앱이 듣는 포트
+
+// 같은 와이파이 안에서 UDP로도 보낼지. ntfy 앱만 쓸 거면 false로 두면 알림이 겹치지 않는다.
+const bool SEND_UDP = true;
+
+// ntfy 푸시 사이 최소 간격. 센서는 몇 초마다 반응할 수 있어서 이게 없으면 알림 폭탄이 된다.
+const unsigned long NTFY_COOLDOWN_MS = 60000;
+
+// 감지 해제(CLEAR)까지 푸시할지. 보통은 감지만 받으면 충분하다.
+const bool NTFY_ON_CLEAR = false;
 
 // 감지 후 이 시간 동안은 "계속 감지중"으로 유지 (ms)
 const unsigned long HOLD_MS = 3000;
@@ -53,6 +68,9 @@ unsigned long lastMotionMs = 0;
 unsigned long bootMs = 0;
 unsigned long lastVerboseMs = 0;
 unsigned long lastWifiTryMs = 0;
+unsigned long lastNtfyMs = 0;
+bool ntfyEverSent = false;
+unsigned long skippedSinceNtfy = 0;
 bool warmedUp = false;
 
 void setup() {
@@ -176,22 +194,75 @@ void notifyPhone(const char* kind) {
   char msg[96];
   snprintf(msg, sizeof(msg), "PIR|%s|%s|%lu", DEVICE_NAME, kind, millis());
 
-  // 같은 공유기 안 모든 기기에 뿌린다. UDP라 유실될 수 있어 두 번 보낸다.
-  for (int i = 0; i < 2; i++) {
-    sendTo(WiFi.broadcastIP(), msg);
-    delay(20);
+  if (SEND_UDP) {
+    // 같은 공유기 안 모든 기기에 뿌린다. UDP라 유실될 수 있어 두 번 보낸다.
+    for (int i = 0; i < 2; i++) {
+      sendTo(WiFi.broadcastIP(), msg);
+      delay(20);
+    }
+
+    // 앱이 알려온 폰에는 유니캐스트로도 보낸다 (절전 중엔 브로드캐스트가 걸러지므로)
+    int sent = 0;
+    for (int i = 0; i < MAX_PHONES; i++) {
+      if (phoneSeen[i] == 0) continue;
+      sendTo(phoneIp[i], msg);
+      delay(20);
+      sent++;
+    }
+    Serial.printf("  -> udp: %s (broadcast + 유니캐스트 %d대)\n", msg, sent);
   }
 
-  // 앱이 알려온 폰에는 유니캐스트로도 보낸다 (절전 중엔 브로드캐스트가 걸러지므로)
-  int sent = 0;
-  for (int i = 0; i < MAX_PHONES; i++) {
-    if (phoneSeen[i] == 0) continue;
-    sendTo(phoneIp[i], msg);
-    delay(20);
-    sent++;
+  bool isMotion = (strcmp(kind, "MOTION") == 0);
+  if (isMotion || NTFY_ON_CLEAR) sendNtfy(isMotion);
+}
+
+/**
+ * ntfy.sh 로 푸시를 보낸다. 집 밖에서도 받기 위한 경로.
+ * 쿨다운 안에 다시 감지되면 보내지 않고 횟수만 세었다가 다음 푸시에 같이 알려 준다.
+ */
+void sendNtfy(bool isMotion) {
+  unsigned long now = millis();
+
+  if (ntfyEverSent && (now - lastNtfyMs < NTFY_COOLDOWN_MS)) {
+    skippedSinceNtfy++;
+    Serial.printf("  -> ntfy 생략 (쿨다운, 누적 %lu건)\n", skippedSinceNtfy);
+    return;
   }
 
-  Serial.printf("  -> sent: %s (broadcast + 유니캐스트 %d대)\n", msg, sent);
+  WiFiClientSecure client;
+  client.setInsecure();        // 인증서 번들을 싣지 않는다. 토픽 이름이 접근 열쇠다.
+  client.setTimeout(8000);
+
+  HTTPClient http;
+  String url = String("https://ntfy.sh/") + NTFY_TOPIC;
+  if (!http.begin(client, url)) {
+    Serial.println("  -> ntfy: 연결 준비 실패");
+    return;
+  }
+
+  char body[160];
+  if (skippedSinceNtfy > 0) {
+    snprintf(body, sizeof(body), "%s 에서 움직임 감지 (쿨다운 동안 %lu건 더 있었음)",
+             DEVICE_NAME, skippedSinceNtfy);
+  } else {
+    snprintf(body, sizeof(body), "%s 에서 움직임 감지", DEVICE_NAME);
+  }
+
+  http.addHeader("Content-Type", "text/plain");
+  http.addHeader("Title", "PIR 움직임 감지");
+  http.addHeader("Priority", isMotion ? "high" : "default");
+  http.addHeader("Tags", "eyes");
+
+  int code = http.POST((uint8_t*)body, strlen(body));
+  if (code > 0 && code < 300) {
+    Serial.printf("  -> ntfy: 전송 성공 (HTTP %d)\n", code);
+    lastNtfyMs = now;
+    ntfyEverSent = true;
+    skippedSinceNtfy = 0;
+  } else {
+    Serial.printf("  -> ntfy: 실패 (HTTP %d) - 다음 감지 때 다시 시도\n", code);
+  }
+  http.end();
 }
 
 void sendTo(IPAddress ip, const char* msg) {
