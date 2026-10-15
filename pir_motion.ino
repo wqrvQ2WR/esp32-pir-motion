@@ -15,7 +15,7 @@
   와이파이 정보는 secrets.h 에 있다 (secrets.h.example 참고, 깃에는 안 올라감).
 
   집 밖(다른 와이파이, 데이터망)에서도 받으려면 인터넷 중계가 필요하다.
-  그래서 감지 시 ntfy.sh 로도 HTTPS POST 한다. 폰의 ntfy 앱이 구글 푸시로 받으므로
+  그래서 감지 시 ntfy 서버로도 HTTPS POST 한다 (주소는 secrets.h의 NTFY_BASE_URL). 폰의 ntfy 앱이 구글 푸시로 받으므로
   깊은 절전이든 LTE든 상관없이 도착한다. 토픽 이름은 secrets.h 에 있고 그 자체가 비밀번호다.
 
   보드: ESP32 Dev Module / 업로드 보드레이트 115200
@@ -234,7 +234,7 @@ void sendNtfy(bool isMotion) {
   client.setTimeout(8000);
 
   HTTPClient http;
-  String url = String("https://ntfy.sh/") + NTFY_TOPIC;
+  String url = String(NTFY_BASE_URL) + "/" + NTFY_TOPIC;
   if (!http.begin(client, url)) {
     Serial.println("  -> ntfy: 연결 준비 실패");
     return;
@@ -249,6 +249,9 @@ void sendNtfy(bool isMotion) {
   }
 
   http.addHeader("Content-Type", "text/plain");
+  if (strlen(NTFY_TOKEN) > 0) {
+    http.addHeader("Authorization", String("Bearer ") + NTFY_TOKEN);
+  }
   http.addHeader("Title", "PIR 움직임 감지");
   http.addHeader("Priority", isMotion ? "high" : "default");
   http.addHeader("Tags", "eyes");
