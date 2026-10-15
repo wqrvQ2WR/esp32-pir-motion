@@ -4,3 +4,4 @@ build/
 *.hex
 *.map
 .DS_Store
+secrets.h
