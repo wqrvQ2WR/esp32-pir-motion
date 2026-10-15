@@ -36,8 +36,8 @@ const uint16_t NOTIFY_PORT = 8765;   // 안드로이드 앱이 듣는 포트
 // 같은 와이파이 안에서 UDP로도 보낼지. ntfy 앱만 쓸 거면 false로 두면 알림이 겹치지 않는다.
 const bool SEND_UDP = false;
 
-// ntfy 푸시 사이 최소 간격. 센서는 몇 초마다 반응할 수 있어서 이게 없으면 알림 폭탄이 된다.
-const unsigned long NTFY_COOLDOWN_MS = 60000;
+// ntfy 푸시 사이 최소 간격.
+const unsigned long NTFY_COOLDOWN_MS = 10000;
 
 // 감지 해제(CLEAR)까지 푸시할지. 보통은 감지만 받으면 충분하다.
 const bool NTFY_ON_CLEAR = false;
